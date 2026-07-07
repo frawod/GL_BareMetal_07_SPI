@@ -97,7 +97,10 @@ int main(void)
 
   int16_t x, y, z; // not unsigned uint, because the LIS3DSH range seems to be [-2g, 2g] (if I'm understanding +/-2g in the data sheet correctly)
 
-  uint16_t threshold = 2000; // completely arbitrary
+  uint16_t threshold = 2000, deadzone = 100; // completely arbitrary
+
+  // turn off all the LEDs
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
 
   /* USER CODE END 2 */
 
@@ -105,21 +108,37 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  // Everything's being done in the while loop, because the assignment specified "Continuously read the raw X-axis and Y-axis acceleration data"
+	  // but this definitely could be done through interrupts instead of polling like this
 	  LIS3DSH_ReadXYZ(&x, &y, &z);
 
-	  // turn off all the LEDs
-	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
+	  // Left - Right
 
-	  if (x > threshold) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET); // tilt right -> red LED
-	  } else if (x < -threshold) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET); // tilt left -> green LED
+	  // only turns on / off if it goes far enough over the threshold (to avoid flickering)
+	  if (x > (threshold + deadzone)) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
+	  } else if (x < (threshold - deadzone)) {
+          HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+      }
+
+	  if (x < -(threshold + deadzone)) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET);
+	  } else if (x > -(threshold - deadzone)) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
 	  }
 
-	  if (y > threshold) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET); // tilt up -> orange LED
-	  } else if (y < -threshold) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET); // tilt down -> blue LED
+	  // Up - Down
+
+	  if (y > (threshold + deadzone)) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
+	  } else if (y < (threshold - deadzone)) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
+	  }
+
+	  if (y < -(threshold + deadzone)) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);
+	  } else if (y > -(threshold - deadzone)) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET);
 	  }
 
 	  HAL_Delay(20); // small delay so that the program isn't just polling SPI a billion times a second
