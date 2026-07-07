@@ -92,6 +92,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
+  HAL_Delay(100);
 
   uint8_t tx_buffer[2];
   uint8_t rx_buffer[2];
