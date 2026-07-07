@@ -22,6 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "lis3dsh.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -91,24 +93,11 @@ int main(void)
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
-  HAL_Delay(100);
+  LIS3DSH_Init(&hspi1);
 
-  uint8_t tx_buffer[2];
-  uint8_t rx_buffer[2];
+  int16_t x, y, z; // not unsigned uint, because the LIS3DSH range seems to be [-2g, 2g] (if I'm understanding +/-2g in the data sheet correctly)
 
-  tx_buffer[0] = 0x8F; // read from 0x0F
-  tx_buffer[1] = 0x00; // worthless unimportant value just to have something to shoot over
-
-  // send and receive
-  HAL_SPI_TransmitReceive(&hspi1, tx_buffer, rx_buffer, 2, HAL_MAX_DELAY);
-
-  // stop talking
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
-
-  if (rx_buffer[1] == 0x3F) { // expected WHO_AM_I from the LIS3DSH that my actual board seems to have
-        __NOP(); // no operation, I just need to put a breakpoint inside the IF, but also make sure the IF doesn't get obliterated by optimisation
-  }
+  uint16_t threshold = 2000; // completely arbitrary
 
   /* USER CODE END 2 */
 
@@ -116,6 +105,25 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  LIS3DSH_ReadXYZ(&x, &y, &z);
+
+	  // turn off all the LEDs
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
+
+	  if (x > threshold) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET); // tilt right -> red LED
+	  } else if (x < -threshold) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET); // tilt left -> green LED
+	  }
+
+	  if (y > threshold) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET); // tilt up -> orange LED
+	  } else if (y < -threshold) {
+		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET); // tilt down -> blue LED
+	  }
+
+	  HAL_Delay(20); // small delay so that the program isn't just polling SPI a billion times a second
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
