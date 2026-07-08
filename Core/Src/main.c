@@ -44,6 +44,9 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim4;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -52,6 +55,8 @@ SPI_HandleTypeDef hspi1;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -91,16 +96,20 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI1_Init();
+  MX_TIM1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
   LIS3DSH_Init(&hspi1);
 
   int16_t x, y, z; // not unsigned uint, because the LIS3DSH range seems to be [-2g, 2g] (if I'm understanding +/-2g in the data sheet correctly)
 
-  uint16_t threshold = 2000, deadzone = 100; // completely arbitrary
+  uint16_t threshold = 2000, deadzone = 200; // completely arbitrary
+  int16_t turn_on_boundary = threshold + deadzone, turn_off_boundary = threshold - deadzone; // helpers
 
-  // turn off all the LEDs
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
+  int16_t max_tilt = 16000; // roughly 1g
+  float tilt_amount, tilt_range, led_min = 10, led_max = 1000; // 1-1000 (actually 0-999) is set in the .ioc
+  uint16_t pwm_value;
 
   /* USER CODE END 2 */
 
@@ -112,36 +121,83 @@ int main(void)
 	  // but this definitely could be done through interrupts instead of polling like this
 	  LIS3DSH_ReadXYZ(&x, &y, &z);
 
-	  // Left - Right
+	  // if these needed to be turned into exact angles rather than values, then I looked through these 2 threads that seemed very informative
+	  // https://forum.arduino.cc/t/sensing-tilt-using-accelerometer-alone/135717/6
+	  // https://stackoverflow.com/questions/72946477/trigonometry-calculate-tilt-angle-from-accelerometer-data
+	  // but it doesn't seem like that's necessary for this assignment, and would just add a bunch of additional complexity
 
-	  // only turns on / off if it goes far enough over the threshold (to avoid flickering)
-	  if (x > (threshold + deadzone)) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
-	  } else if (x < (threshold - deadzone)) {
-          HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1); // green / left (PD12)
+	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2); // orange / up (PD13)
+	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3); // red / right (PD14)
+	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // blue / down (PD15)
+
+	  // --- Left - Right
+
+	  // only changes state if it goes far enough over the threshold (to avoid flickering back and forth)
+	  if (x > turn_on_boundary) {
+		  tilt_amount = (float)(x - turn_on_boundary);
+		  tilt_range = (float)(max_tilt - turn_on_boundary);
+
+		  // map the tilt to brightness as a percentage
+		  pwm_value = led_min + (uint32_t)((tilt_amount / tilt_range) * (led_max - led_min));
+
+		  // cap at the max
+		  if (pwm_value > led_max) pwm_value = led_max;
+
+		  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, pwm_value); // set brightness
+	  } else if (x < turn_off_boundary) {
+		  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, 0); // disable completely
       }
 
-	  if (x < -(threshold + deadzone)) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET);
-	  } else if (x > -(threshold - deadzone)) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
+	  if (x < -turn_on_boundary) {
+		// same as above, but with signs flipped, since X is negative here
+		tilt_amount = (float)(-(x) - turn_on_boundary);
+		tilt_range = (float)(max_tilt - turn_on_boundary);
+
+		pwm_value = led_min + (uint32_t)((tilt_amount / tilt_range) * (led_max - led_min));
+		if (pwm_value > led_max) pwm_value = led_max;
+
+		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pwm_value);
+	  } else if (x > -turn_off_boundary) {
+		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);
 	  }
 
-	  // Up - Down
+	  // --- Up - Down
 
-	  if (y > (threshold + deadzone)) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
-	  } else if (y < (threshold - deadzone)) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
+	  if (y > turn_on_boundary) {
+		 tilt_amount = (float)(y - turn_on_boundary);
+		 tilt_range = (float)(max_tilt - turn_on_boundary);
+
+		 pwm_value = led_min + (uint32_t)((tilt_amount / tilt_range) * (led_max - led_min));
+
+		 if (pwm_value > led_max) pwm_value = led_max;
+
+		 __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, pwm_value);
+	  } else if (y < turn_off_boundary) {
+		 __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, 0);
 	  }
 
-	  if (y < -(threshold + deadzone)) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);
-	  } else if (y > -(threshold - deadzone)) {
-		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET);
+	  if (y < -turn_on_boundary) {
+		tilt_amount = (float)(-(y) - turn_on_boundary);
+		tilt_range = (float)(max_tilt - turn_on_boundary);
+
+		pwm_value = led_min + (uint32_t)((tilt_amount / tilt_range) * (led_max - led_min));
+		if (pwm_value > led_max) pwm_value = led_max;
+
+		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_4, pwm_value);
+	  } else if (y > -turn_off_boundary) {
+		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_4, 0);
 	  }
 
 	  HAL_Delay(20); // small delay so that the program isn't just polling SPI a billion times a second
+
+	  // I *think* that instead of the timers, changing the LED brightness *could* be just done with delays / periodically turning them on/off
+	  // but since we're also supposed to be reading the accelerometer data in the while loop, that wouldn't really fly
+	  // since we don't want that to stop
+	  // but if the accelerometer data was on interrupts, then idk maybe that would be doable
+	  // though, again, that's just how I interpreted the assignment
+
+	  // remembering the last on/off time for each LED and toggling them that way could maybe work, but would be crazy inaccurate
 
     /* USER CODE END WHILE */
 
@@ -230,6 +286,123 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 159;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 999;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 159;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 999;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -250,9 +423,6 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
-
   /*Configure GPIO pin : PE3 */
   GPIO_InitStruct.Pin = GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -265,13 +435,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PD12 PD13 PD14 PD15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PC6 PC8 PC9 PC11 */
   GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_11;
