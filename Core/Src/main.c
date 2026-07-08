@@ -111,6 +111,11 @@ int main(void)
   float tilt_amount, tilt_range, led_min = 10, led_max = 1000; // 1-1000 (actually 0-999) is set in the .ioc
   uint16_t pwm_value;
 
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1); // green / left (PD12)
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2); // orange / up (PD13)
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3); // red / right (PD14)
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // blue / down (PD15)
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -125,11 +130,6 @@ int main(void)
 	  // https://forum.arduino.cc/t/sensing-tilt-using-accelerometer-alone/135717/6
 	  // https://stackoverflow.com/questions/72946477/trigonometry-calculate-tilt-angle-from-accelerometer-data
 	  // but it doesn't seem like that's necessary for this assignment, and would just add a bunch of additional complexity
-
-	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1); // green / left (PD12)
-	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2); // orange / up (PD13)
-	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3); // red / right (PD14)
-	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // blue / down (PD15)
 
 	  // --- Left - Right
 
